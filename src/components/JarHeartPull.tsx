@@ -1,5 +1,5 @@
-import { useRef, useEffect, useState, useId, useCallback, type PointerEvent as ReactPointerEvent } from 'react';
-import { motion, useMotionValue, useTransform, animate } from 'framer-motion';
+import { useRef, useEffect, useState, useId, useCallback } from 'react';
+import { motion, useMotionValue, useTransform, animate, type MotionValue } from 'framer-motion';
 import { playPulleyTick } from '../lib/pulleyTick';
 
 interface Props {
@@ -8,23 +8,25 @@ interface Props {
   onPull?: () => void;
 }
 
-/** Total crank rotation (deg) for one full draw — drives pulley, rope, bucket. */
-const MAX_CRANK_DEG = 280;
-const THRESHOLD = MAX_CRANK_DEG * 0.52;
-const NOTCH_STEP = MAX_CRANK_DEG / 8;
-
-function unwrapAngleDelta(fromRad: number, toRad: number): number {
-  let d = toRad - fromRad;
-  while (d > Math.PI) d -= 2 * Math.PI;
-  while (d < -Math.PI) d += 2 * Math.PI;
-  return d;
-}
-
-const restLift: Record<0 | 1 | 2, number> = {
-  0: 0,
-  1: 22,
-  2: 46,
+/**
+ * Curtain half-separation (px). Each pull starts where the last one left off;
+ * only the final pull animates to 0 (halves meet).
+ */
+const CURTAIN_START_GAP: Record<0 | 1 | 2, number> = {
+  0: 46,
+  1: 24,
+  2: 9,
 };
+
+const CURTAIN_CLOSE_TARGET: Record<0 | 1 | 2, number> = {
+  0: 24,
+  1: 9,
+  2: 0,
+};
+
+/** Lever arm angle (deg): rest leans right like the reference; pull swings left. */
+const LEVER_REST_DEG = 22;
+const LEVER_PULL_DEG = -34;
 
 function BrokenHeartPair({ gap }: { gap: number }) {
   const size = 'text-[4.5rem] leading-none sm:text-[5rem]';
@@ -58,23 +60,134 @@ function BrokenHeartPair({ gap }: { gap: number }) {
   );
 }
 
+/** Two curtain halves: same vertical band, slide horizontally toward center. */
+function CurtainHeart({ gap }: { gap: MotionValue<number> }) {
+  const size = 'text-[5.5rem] leading-none sm:text-[6.25rem] md:text-[6.75rem]';
+  const leftX = useTransform(gap, (g) => -g / 2);
+  const rightX = useTransform(gap, (g) => g / 2);
+  return (
+    <div
+      className="relative flex h-[6.75rem] w-[11.5rem] items-center justify-center overflow-visible sm:h-[7.5rem] sm:w-[13rem] md:h-[8rem] md:w-[14.5rem]"
+      aria-hidden
+    >
+      <div className="pointer-events-none absolute inset-x-3 top-1 h-1.5 rounded-full bg-gradient-to-r from-rose-900/80 via-rose-400/50 to-rose-900/80" />
+      <motion.span className={`absolute select-none ${size}`} style={{ x: leftX }}>
+        <span
+          className="inline-block drop-shadow-[0_0_18px_rgba(251,113,133,0.55)]"
+          style={{ clipPath: 'inset(0 50% 0 0)' }}
+        >
+          &#128148;
+        </span>
+      </motion.span>
+      <motion.span className={`absolute select-none ${size}`} style={{ x: rightX }}>
+        <span
+          className="inline-block drop-shadow-[0_0_18px_rgba(251,113,133,0.55)]"
+          style={{ clipPath: 'inset(0 0 0 50%)' }}
+        >
+          &#128148;
+        </span>
+      </motion.span>
+    </div>
+  );
+}
+
+function LeverControl({
+  uid,
+  leverDeg,
+  onCommit,
+}: {
+  uid: string;
+  leverDeg: MotionValue<number>;
+  onCommit: () => void;
+}) {
+  /** Pivot where the stem meets the housing (user space, matches translate below). */
+  const px = 40;
+  const py = 64;
+
+  return (
+    <button
+      type="button"
+      aria-label="Pull lever to close the curtain"
+      onClick={() => void onCommit()}
+      className="relative mt-1 flex touch-manipulation flex-col items-center border-0 bg-transparent p-2 outline-none focus-visible:ring-2 focus-visible:ring-rose-400/70"
+    >
+      <svg viewBox="0 0 80 96" className="h-[96px] w-[80px] overflow-visible" aria-hidden>
+        <defs>
+          <linearGradient id={`lev-base-${uid}`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#292524" />
+            <stop offset="40%" stopColor="#57534e" />
+            <stop offset="100%" stopColor="#1c1917" />
+          </linearGradient>
+          <linearGradient id={`lev-step-${uid}`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#881337" />
+            <stop offset="100%" stopColor="#4c0519" />
+          </linearGradient>
+          <linearGradient id={`lev-dome-${uid}`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#44403c" />
+            <stop offset="100%" stopColor="#0c0a09" />
+          </linearGradient>
+          <linearGradient id={`lev-stem-${uid}`} x1="0" y1="1" x2="1" y2="0">
+            <stop offset="0%" stopColor="#fb7185" />
+            <stop offset="100%" stopColor="#9f1239" />
+          </linearGradient>
+        </defs>
+
+        {/* Static: base, step, semicircle housing, inner pivot ring — does not rotate */}
+        <g>
+          <rect x="4" y="80" width="72" height="14" rx="3" fill={`url(#lev-base-${uid})`} stroke="#a8a29e" strokeWidth="0.75" />
+          <rect x="12" y="72" width="56" height="10" rx="2" fill={`url(#lev-step-${uid})`} stroke="#fda4af" strokeWidth="0.5" />
+          <path
+            d="M 18 72 A 22 22 0 0 1 62 72 Z"
+            fill={`url(#lev-dome-${uid})`}
+            stroke="#a8a29e"
+            strokeWidth="1"
+          />
+          <path
+            d="M 26 72 A 14 14 0 0 1 40 58 A 14 14 0 0 1 54 72"
+            fill="none"
+            stroke="#57534e"
+            strokeWidth="1"
+            opacity="0.9"
+          />
+          <circle cx={px} cy={py} r="5" fill="#1c1917" stroke="#78716c" strokeWidth="1" />
+          <circle cx={px} cy={py} r="2" fill="#44403c" />
+        </g>
+
+        {/* Only arm + grip rotate around the pivot */}
+        <g transform={`translate(${px} ${py})`}>
+          <motion.g style={{ rotate: leverDeg, transformOrigin: '0px 0px' }}>
+            <line
+              x1="0"
+              y1="0"
+              x2="28"
+              y2="-46"
+              stroke={`url(#lev-stem-${uid})`}
+              strokeWidth="7"
+              strokeLinecap="round"
+            />
+            <ellipse
+              cx="28"
+              cy="-46"
+              rx="11"
+              ry="8"
+              fill="#b45309"
+              stroke="#fcd34d"
+              strokeWidth="1.25"
+              transform="rotate(32 28 -46)"
+            />
+          </motion.g>
+        </g>
+      </svg>
+    </button>
+  );
+}
+
 export default function JarHeartPull({ pullIndex, merging = false, onPull }: Props) {
   const uid = useId().replace(/:/g, '');
-  const crankDeg = useMotionValue(0);
+  const curtainGap = useMotionValue(CURTAIN_START_GAP[pullIndex]);
+  const leverDeg = useMotionValue(LEVER_REST_DEG);
   const committed = useRef(false);
-  const crankRef = useRef<HTMLDivElement>(null);
-  const dragRef = useRef<{
-    startRad: number;
-    startCrank: number;
-  } | null>(null);
-  const lastNotchIndex = useRef(0);
-
-  const pulleyRotate = useTransform(crankDeg, [0, MAX_CRANK_DEG], [0, -320]);
-  const ropeSway = useTransform(crankDeg, [0, MAX_CRANK_DEG], [0, 3.5]);
-  const bucketY = useTransform(crankDeg, (deg) => {
-    const drag = (deg / MAX_CRANK_DEG) * 58;
-    return -(restLift[pullIndex] + drag);
-  });
+  const busy = useRef(false);
 
   const [mergeStep, setMergeStep] = useState<'split' | 'close' | 'whole'>('split');
 
@@ -97,61 +210,31 @@ export default function JarHeartPull({ pullIndex, merging = false, onPull }: Pro
   }, [merging]);
 
   useEffect(() => {
-    crankDeg.set(0);
+    curtainGap.set(CURTAIN_START_GAP[pullIndex]);
+    leverDeg.set(LEVER_REST_DEG);
     committed.current = false;
-    lastNotchIndex.current = 0;
-  }, [pullIndex, crankDeg]);
+    busy.current = false;
+  }, [pullIndex, curtainGap, leverDeg]);
 
-  const updateNotchTicks = useCallback((deg: number) => {
-    const idx = Math.floor(deg / NOTCH_STEP);
-    if (idx > lastNotchIndex.current) {
-      const steps = idx - lastNotchIndex.current;
-      for (let t = 0; t < steps; t++) playPulleyTick();
-      lastNotchIndex.current = idx;
-    } else if (idx < lastNotchIndex.current) {
-      lastNotchIndex.current = idx;
+  const runLeverPull = useCallback(async () => {
+    if (committed.current || busy.current) return;
+    busy.current = true;
+    const target = CURTAIN_CLOSE_TARGET[pullIndex];
+    try {
+      await Promise.all([
+        animate(leverDeg, LEVER_PULL_DEG, { duration: 0.24, ease: [0.22, 1, 0.36, 1] }),
+        animate(curtainGap, target, { duration: 0.42, ease: [0.33, 1, 0.68, 1] }),
+      ]);
+      if (!committed.current) {
+        committed.current = true;
+        playPulleyTick();
+        onPull?.();
+      }
+      await animate(leverDeg, LEVER_REST_DEG, { type: 'spring', stiffness: 400, damping: 22 });
+    } finally {
+      busy.current = false;
     }
-  }, []);
-
-  const endCrankGesture = useCallback(() => {
-    if (crankDeg.get() >= THRESHOLD && !committed.current) {
-      committed.current = true;
-      onPull?.();
-    }
-    void animate(crankDeg, 0, { type: 'spring', stiffness: 420, damping: 26 });
-  }, [crankDeg, onPull]);
-
-  const onCrankPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
-    const el = crankRef.current;
-    if (!el) return;
-    e.currentTarget.setPointerCapture(e.pointerId);
-    const r = el.getBoundingClientRect();
-    const cx = r.left + r.width / 2;
-    const cy = r.top + r.height / 2;
-    const startRad = Math.atan2(e.clientY - cy, e.clientX - cx);
-    dragRef.current = { startRad, startCrank: crankDeg.get() };
-  };
-
-  const onCrankPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (!dragRef.current || !crankRef.current) return;
-    const r = crankRef.current.getBoundingClientRect();
-    const cx = r.left + r.width / 2;
-    const cy = r.top + r.height / 2;
-    const curRad = Math.atan2(e.clientY - cy, e.clientX - cx);
-    const deltaRad = unwrapAngleDelta(dragRef.current.startRad, curRad);
-    const deltaDeg = (deltaRad * 180) / Math.PI;
-    const next = Math.min(MAX_CRANK_DEG, Math.max(0, dragRef.current.startCrank + deltaDeg));
-    crankDeg.set(next);
-    updateNotchTicks(next);
-  };
-
-  const onCrankPointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-      e.currentTarget.releasePointerCapture(e.pointerId);
-    }
-    dragRef.current = null;
-    endCrankGesture();
-  };
+  }, [curtainGap, leverDeg, onPull, pullIndex]);
 
   if (merging) {
     return (
@@ -186,117 +269,32 @@ export default function JarHeartPull({ pullIndex, merging = false, onPull }: Pro
     );
   }
 
-  const rad = (deg: number) => (deg * Math.PI) / 180;
+  const leverHint =
+    pullIndex === 2
+      ? 'Tap the lever — the curtain closes all the way; the halves meet, then the lever returns.'
+      : 'Tap the lever — the curtain draws tighter; the halves get closer, then the lever returns.';
 
   return (
-    <div className="flex w-full max-w-[340px] flex-col items-center gap-4">
-      <div className="relative z-20 flex flex-col items-center">
-        <p className="mb-1 text-[10px] uppercase tracking-[0.2em] text-rose-300/70">Waiting at the rim</p>
-        <BrokenHeartPair gap={6} />
-      </div>
+    <div className="flex w-full max-w-[min(100%,380px)] flex-col items-center gap-5 px-1">
+      <p className="mb-0.5 text-[10px] uppercase tracking-[0.2em] text-rose-300/70">Behind the curtain</p>
 
-      <div className="relative flex w-full flex-row items-end justify-center gap-4 sm:gap-6">
-        <div className="relative flex w-[230px] shrink-0 flex-col items-center sm:w-[248px]">
-          <svg viewBox="0 0 220 210" className="h-[210px] w-full overflow-visible" aria-hidden>
-            <defs>
-              <linearGradient id={`wood-${uid}`} x1="0" y1="0" x2="1" y2="0">
-                <stop offset="0%" stopColor="#3f1d10" />
-                <stop offset="45%" stopColor="#7a4a32" />
-                <stop offset="100%" stopColor="#3f1d10" />
-              </linearGradient>
-              <linearGradient id={`rope-${uid}`} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#fecdd3" />
-                <stop offset="100%" stopColor="#881337" />
-              </linearGradient>
-            </defs>
-            <rect x="28" y="44" width="14" height="166" rx="3" fill={`url(#wood-${uid})`} opacity="0.95" />
-            <rect x="178" y="44" width="14" height="166" rx="3" fill={`url(#wood-${uid})`} opacity="0.95" />
-            <rect x="24" y="40" width="172" height="12" rx="4" fill={`url(#wood-${uid})`} />
-            <circle cx="110" cy="50" r="19" fill="#2a1810" stroke="#a67c52" strokeWidth="2" />
-            <motion.g style={{ rotate: pulleyRotate, transformOrigin: '110px 50px' }}>
-              {[0, 45, 90, 135].map((deg) => (
-                <line
-                  key={deg}
-                  x1="110"
-                  y1="50"
-                  x2={110 + 17 * Math.cos(rad(deg))}
-                  y2={50 + 17 * Math.sin(rad(deg))}
-                  stroke="#d4b896"
-                  strokeWidth="3"
-                  strokeLinecap="round"
-                />
-              ))}
-            </motion.g>
-            <motion.line
-              x1="110"
-              y1="69"
-              x2="110"
-              y2="128"
-              stroke={`url(#rope-${uid})`}
-              strokeWidth="3.5"
-              strokeLinecap="round"
-              style={{ x: ropeSway }}
-            />
-          </svg>
-
-          <motion.div
-            className="absolute bottom-[12px] left-1/2 flex w-[128px] -translate-x-1/2 flex-col items-center"
-            style={{ y: bucketY }}
-          >
-            <div className="rounded-b-2xl rounded-t-md border-2 border-amber-900/55 bg-gradient-to-b from-amber-950/85 to-stone-900/92 px-3 pb-2 pt-2 shadow-xl ring-1 ring-white/10">
-              <p className="mb-1 text-center text-[9px] uppercase tracking-widest text-amber-200/75">
-                Bucket
-              </p>
-              <BrokenHeartPair gap={10} />
-            </div>
-          </motion.div>
-
-          <div className="pointer-events-none absolute bottom-0 left-1/2 h-6 w-[86%] -translate-x-1/2 rounded-full bg-stone-500/35 blur-[2px]" />
+      <div className="relative flex w-full max-w-[360px] flex-col items-center">
+        <div className="relative flex min-h-[220px] w-full flex-col items-center justify-center rounded-2xl border border-rose-950/50 bg-gradient-to-b from-stone-950/90 to-[#1a0a10] px-6 py-10 shadow-inner ring-1 ring-white/5 sm:min-h-[248px] sm:px-8 sm:py-12">
+          <p className="mb-5 text-center text-[9px] uppercase tracking-[0.2em] text-rose-300/50">Draw closed</p>
+          <CurtainHeart gap={curtainGap} />
+          <div className="pointer-events-none mt-5 h-2.5 w-[88%] max-w-[280px] rounded-full bg-black/40 blur-sm" />
         </div>
 
-        <div className="flex shrink-0 flex-col items-center pb-1">
-          <p className="mb-2 max-w-[6.5rem] text-center text-[10px] leading-snug text-rose-200/90">
-            Turn the crank — each notch clicks like the pulley
-          </p>
-          <div className="relative flex h-[172px] w-[5.25rem] flex-col items-center justify-end">
-            <div className="absolute bottom-2 h-[7.5rem] w-[7.5rem] rounded-full border border-stone-600/40 bg-stone-900/25 shadow-inner" />
-            <div
-              ref={crankRef}
-              className="relative z-10 flex h-[7.5rem] w-[7.5rem] cursor-grab touch-none items-center justify-center active:cursor-grabbing"
-              aria-label="Well crank, turn to raise the bucket"
-              onPointerDown={onCrankPointerDown}
-              onPointerMove={onCrankPointerMove}
-              onPointerUp={onCrankPointerUp}
-              onPointerCancel={onCrankPointerUp}
-            >
-              <motion.div className="absolute inset-0" style={{ rotate: crankDeg }}>
-                <svg viewBox="-48 -48 96 96" className="h-full w-full overflow-visible" aria-hidden>
-                  <defs>
-                    <linearGradient id={`crank-wood-${uid}`} x1="0" y1="0" x2="1" y2="0">
-                      <stop offset="0%" stopColor="#78350f" />
-                      <stop offset="100%" stopColor="#451a03" />
-                    </linearGradient>
-                  </defs>
-                  <line
-                    x1="0"
-                    y1="0"
-                    x2="44"
-                    y2="0"
-                    stroke={`url(#crank-wood-${uid})`}
-                    strokeWidth="7"
-                    strokeLinecap="round"
-                  />
-                  <circle cx="44" cy="0" r="13" fill="#b45309" stroke="#fcd34d" strokeWidth="1.5" />
-                  <circle cx="0" cy="0" r="20" fill="#57534e" stroke="#92400e" strokeWidth="2" />
-                </svg>
-              </motion.div>
-            </div>
-          </div>
+        <p className="mx-auto mt-4 max-w-[17rem] text-center text-[10px] leading-snug text-rose-200/90">{leverHint}</p>
+        <div className="mt-1 flex justify-center">
+          <LeverControl uid={uid} leverDeg={leverDeg} onCommit={() => void runLeverPull()} />
         </div>
       </div>
 
-      <p className="max-w-[17rem] text-center text-[11px] leading-snug text-rose-200/65">
-        Crank smoothly; let go after you have gone most of the way — the pulley springs back and your draw is saved.
+      <p className="max-w-[18rem] text-center text-[11px] leading-snug text-rose-200/65">
+        {pullIndex === 2
+          ? 'Last beat: one tap brings the curtain home and saves the finale.'
+          : 'Each tap saves this beat; the next curtain starts a little nearer — until the last one.'}
       </p>
     </div>
   );
