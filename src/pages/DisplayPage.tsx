@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import PhotoCarousel from '../components/PhotoCarousel';
 import RelationshipTimer from '../components/RelationshipTimer';
 import CoupleDetails from '../components/CoupleDetails';
-import MusicPlayer from '../components/MusicPlayer';
+import MusicPlayer, { type MusicPlayerHandle } from '../components/MusicPlayer';
+import SurpriseGate from '../components/SurpriseGate';
 import type { CoupleData } from '../types';
 
 interface Props {
@@ -85,13 +86,17 @@ function ShareSection({ shareId }: { shareId: string }) {
 }
 
 export default function DisplayPage({ data, shareId, isSharedView, onBack }: Props) {
-  return (
-    <div className="relative min-h-full bg-gradient-to-b from-[#1a0a10] via-[#2d0a1e] to-[#1a0a10] overflow-x-hidden">
-      {/* Ambient glow */}
+  const musicRef = useRef<MusicPlayerHandle>(null);
+
+  const startMusicFromReveal = useCallback(() => {
+    musicRef.current?.play();
+  }, []);
+
+  const inner = (
+    <>
       <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[600px] h-[600px] rounded-full bg-rose-500/10 blur-[120px] pointer-events-none" />
 
       <div className="relative z-10 flex flex-col items-center gap-8 px-4 pt-8 sm:pt-12 pb-32 max-w-lg mx-auto">
-        {/* Back button (hidden for shared view) */}
         {!isSharedView && (
           <motion.button
             initial={{ opacity: 0 }}
@@ -104,7 +109,6 @@ export default function DisplayPage({ data, shareId, isSharedView, onBack }: Pro
           </motion.button>
         )}
 
-        {/* Title */}
         <motion.h1
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -114,21 +118,25 @@ export default function DisplayPage({ data, shareId, isSharedView, onBack }: Pro
           {data.partner1.name} &amp; {data.partner2.name}
         </motion.h1>
 
-        {/* Photo carousel */}
         <PhotoCarousel photos={data.photos} />
 
-        {/* Relationship timer */}
         <RelationshipTimer startDate={data.startDate} />
 
-        {/* Couple details */}
         <CoupleDetails partner1={data.partner1} partner2={data.partner2} />
 
-        {/* Share section */}
         {shareId && !isSharedView && <ShareSection shareId={shareId} />}
       </div>
+    </>
+  );
 
-      {/* Music player */}
-      <MusicPlayer />
+  return (
+    <div className="relative min-h-full bg-gradient-to-b from-[#1a0a10] via-[#2d0a1e] to-[#1a0a10] overflow-x-hidden">
+      {isSharedView ? (
+        <SurpriseGate onRevealComplete={startMusicFromReveal}>{inner}</SurpriseGate>
+      ) : (
+        inner
+      )}
+      <MusicPlayer ref={musicRef} />
     </div>
   );
 }

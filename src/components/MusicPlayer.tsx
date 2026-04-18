@@ -1,9 +1,21 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  forwardRef,
+  useImperativeHandle,
+} from 'react';
 import { Howl } from 'howler';
 import { motion, AnimatePresence } from 'framer-motion';
 import { playlist } from '../config/songs';
 
-export default function MusicPlayer() {
+export type MusicPlayerHandle = {
+  /** Call from a click handler so autoplay policies allow audio. */
+  play: () => void;
+};
+
+const MusicPlayer = forwardRef<MusicPlayerHandle>(function MusicPlayer(_props, ref) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -54,10 +66,21 @@ export default function MusicPlayer() {
     [stopCurrent, volume],
   );
 
+  useImperativeHandle(
+    ref,
+    () => ({
+      play: () => {
+        const h = howlRef.current;
+        if (!h) return;
+        if (!h.playing()) h.play();
+      },
+    }),
+    [],
+  );
+
   useEffect(() => {
     loadAndPlay(currentIndex, false);
     return stopCurrent;
-    // Only on mount
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -109,12 +132,10 @@ export default function MusicPlayer() {
       style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
     >
       <div className="mx-auto max-w-lg bg-black/70 backdrop-blur-xl border-t border-white/10 rounded-t-2xl px-4 py-3 space-y-2">
-        {/* Song title */}
         <p className="text-center text-xs text-rose-300 truncate">
           {song?.title ?? 'No songs'}
         </p>
 
-        {/* Progress bar */}
         <div className="flex items-center gap-2 text-[10px] text-white/50">
           <span className="w-8 text-right tabular-nums">{formatTime(progress)}</span>
           <input
@@ -129,9 +150,7 @@ export default function MusicPlayer() {
           <span className="w-8 tabular-nums">{formatTime(duration)}</span>
         </div>
 
-        {/* Controls */}
         <div className="flex items-center justify-center gap-6 relative">
-          {/* Volume toggle */}
           <button
             onClick={() => setShowVolume((v) => !v)}
             className="w-11 h-11 flex items-center justify-center text-white/60 hover:text-white active:text-white transition"
@@ -179,10 +198,8 @@ export default function MusicPlayer() {
             </svg>
           </button>
 
-          {/* Spacer to balance volume button */}
           <div className="w-11 h-11" />
 
-          {/* Volume slider dropdown */}
           <AnimatePresence>
             {showVolume && (
               <motion.div
@@ -210,4 +227,6 @@ export default function MusicPlayer() {
       </div>
     </motion.div>
   );
-}
+});
+
+export default MusicPlayer;
