@@ -145,15 +145,25 @@ async function deleteSession(accessToken: string, sessionId: string): Promise<vo
  * Requires pop-ups allowed for this site.
  */
 export async function pickImagesFromGooglePhotos(): Promise<File[]> {
-  const accessToken = await requestGooglePickerAccessToken();
-
-  const popup = window.open('about:blank', '_blank', 'noopener,noreferrer');
+  // Open synchronously on the tap/click so mobile browsers allow it; do not use
+  // noopener here — it makes window.open return null in many browsers.
+  const popup = window.open('about:blank', '_blank');
   if (!popup) {
-    throw new Error('Pop-up was blocked. Allow pop-ups for this site to pick from Google Photos.');
+    throw new Error(
+      'Pop-up was blocked. Allow pop-ups for this site to pick from Google Photos, or try again after tapping the button.',
+    );
+  }
+  try {
+    popup.opener = null;
+  } catch {
+    /* ignore */
   }
 
   let sessionId: string | undefined;
+  let accessToken: string | undefined;
   try {
+    accessToken = await requestGooglePickerAccessToken();
+
     const createRes = await fetch(`${API}/sessions`, {
       method: 'POST',
       headers: {
@@ -193,7 +203,7 @@ export async function pickImagesFromGooglePhotos(): Promise<File[]> {
     }
     throw e;
   } finally {
-    if (sessionId) {
+    if (sessionId && accessToken) {
       void deleteSession(accessToken, sessionId);
     }
   }
