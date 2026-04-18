@@ -48,12 +48,14 @@ export async function saveLoveStory(
   let useStorage = true;
 
   try {
+    const perFileTimeoutMs = Math.min(180000, 20000 + Math.min(photoFiles.length, 80) * 1500);
+
     for (let i = 0; i < photoFiles.length; i++) {
       const file = photoFiles[i];
       const storageRef = ref(storage, `stories/${id}/photo_${i}`);
       const uploadPromise = uploadBytes(storageRef, file);
       const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('storage_timeout')), 15000),
+        setTimeout(() => reject(new Error('storage_timeout')), perFileTimeoutMs),
       );
       await Promise.race([uploadPromise, timeoutPromise]);
       const url = await getDownloadURL(storageRef);

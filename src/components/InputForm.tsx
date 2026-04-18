@@ -1,6 +1,9 @@
-import { useState, useRef, type FormEvent, type ChangeEvent } from 'react';
+import { useState, useRef, useCallback, type FormEvent, type ChangeEvent } from 'react';
 import { motion } from 'framer-motion';
 import type { CoupleSubmission } from '../types';
+import { googlePickerConfigured } from '../lib/googleAccess';
+import { pickImagesFromGoogleDrive } from '../lib/googleDrivePicker';
+import { pickImagesFromGooglePhotos } from '../lib/googlePhotosPicker';
 
 interface PhotoEntry {
   id: number;
@@ -24,32 +27,54 @@ export default function InputForm({ onSubmit }: Props) {
   const [startDate, setStartDate] = useState('');
   const [photos, setPhotos] = useState<PhotoEntry[]>([]);
   const [inputKey, setInputKey] = useState(0);
+  const [googleBusy, setGoogleBusy] = useState<'drive' | 'photos' | null>(null);
+  const [googleError, setGoogleError] = useState<string | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
+  const googleConfigured = googlePickerConfigured();
 
-  const onFileChange = (e: ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-
-    console.log('[PhotoUpload] onChange fired, files selected:', files.length);
-
+  const appendFiles = useCallback((files: File[]) => {
+    if (files.length === 0) return;
     setPhotos((prev) => {
-      const remaining = 5 - prev.length;
-      console.log('[PhotoUpload] current count:', prev.length, 'remaining slots:', remaining);
-      if (remaining <= 0) return prev;
-
-      const incoming = Array.from(files).slice(0, remaining);
-      const newEntries: PhotoEntry[] = incoming.map((f) => ({
+      const newEntries: PhotoEntry[] = files.map((f) => ({
         id: nextId++,
         file: f,
         preview: URL.createObjectURL(f),
       }));
-
-      const updated = [...prev, ...newEntries];
-      console.log('[PhotoUpload] new count:', updated.length);
-      return updated;
+      return [...prev, ...newEntries];
     });
+  }, []);
 
+  const onFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    appendFiles(Array.from(files));
     setInputKey((k) => k + 1);
+  };
+
+  const onGoogleDrive = async () => {
+    setGoogleError(null);
+    setGoogleBusy('drive');
+    try {
+      const files = await pickImagesFromGoogleDrive();
+      appendFiles(files);
+    } catch (err) {
+      setGoogleError(err instanceof Error ? err.message : 'Google Drive import failed.');
+    } finally {
+      setGoogleBusy(null);
+    }
+  };
+
+  const onGooglePhotos = async () => {
+    setGoogleError(null);
+    setGoogleBusy('photos');
+    try {
+      const files = await pickImagesFromGooglePhotos();
+      appendFiles(files);
+    } catch (err) {
+      setGoogleError(err instanceof Error ? err.message : 'Google Photos import failed.');
+    } finally {
+      setGoogleBusy(null);
+    }
   };
 
   const removePhoto = (id: number) => {
@@ -189,23 +214,21 @@ export default function InputForm({ onSubmit }: Props) {
 
       {/* Photos */}
       <div>
-        <label className={labelClass}>
-          Your memories together ({photos.length}/5 photos)
-        </label>
+        <label className={labelClass}>Your memories together ({photos.length} photos)</label>
 
         {photos.length > 0 && (
-          <div className="grid grid-cols-3 gap-2 mb-3">
+          <div className="mb-3 grid max-h-64 grid-cols-3 gap-2 overflow-y-auto pr-1 sm:max-h-80">
             {photos.map((entry) => (
-              <div key={entry.id} className="relative aspect-square rounded-xl overflow-hidden group">
+              <div key={entry.id} className="group relative aspect-square overflow-hidden rounded-xl">
                 <img
                   src={entry.preview}
                   alt={`Photo ${entry.id}`}
-                  className="w-full h-full object-cover"
+                  className="h-full w-full object-cover"
                 />
                 <button
                   type="button"
                   onClick={() => removePhoto(entry.id)}
-                  className="absolute top-1 right-1 w-7 h-7 rounded-full bg-black/60 text-white text-sm flex items-center justify-center opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition"
+                  className="absolute right-1 top-1 flex h-7 w-7 items-center justify-center rounded-full bg-black/60 text-sm text-white opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100"
                 >
                   &times;
                 </button>
@@ -214,11 +237,9 @@ export default function InputForm({ onSubmit }: Props) {
           </div>
         )}
 
-        {photos.length < 5 && (
-          <label className="block w-full rounded-xl border-2 border-dashed border-white/20 py-6 text-white/50 hover:border-rose-400 hover:text-rose-300 active:border-rose-400 active:text-rose-300 transition text-sm min-h-[56px] text-center cursor-pointer">
-            {photos.length === 0
-              ? 'Tap to add up to 5 photos'
-              : `Tap to add more (${5 - photos.length} remaining)`}
+        <div className="flex flex-col gap-2">
+          <label className="block min-h-[56px] w-full cursor-pointer rounded-xl border-2 border-dashed border-white/20 py-6 text-center text-sm text-white/50 transition hover:border-rose-400 hover:text-rose-300 active:border-rose-400 active:text-rose-300">
+            {photos.length === 0 ? 'Tap to add photos from this device' : 'Tap to add more from this device'}
             <input
               key={inputKey}
               type="file"
@@ -228,7 +249,44 @@ export default function InputForm({ onSubmit }: Props) {
               onChange={onFileChange}
             />
           </label>
-        )}
+
+          {googleConfigured && (
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                disabled={googleBusy !== null}
+                onClick={() => void onGoogleDrive()}
+                className="min-h-[48px] rounded-xl border border-white/25 bg-white/5 px-3 py-2 text-sm text-rose-100 transition hover:border-rose-400/60 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {googleBusy === 'drive' ? 'Opening Drive…' : 'Add from Google Drive'}
+              </button>
+              <button
+                type="button"
+                disabled={googleBusy !== null}
+                onClick={() => void onGooglePhotos()}
+                className="min-h-[48px] rounded-xl border border-white/25 bg-white/5 px-3 py-2 text-sm text-rose-100 transition hover:border-rose-400/60 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {googleBusy === 'photos' ? 'Opening Photos…' : 'Add from Google Photos'}
+              </button>
+            </div>
+          )}
+
+          {!googleConfigured && (
+            <p className="text-center text-[11px] leading-snug text-white/35">
+              Optional: set <span className="font-mono text-white/50">VITE_GOOGLE_CLIENT_ID</span>,{' '}
+              <span className="font-mono text-white/50">VITE_GOOGLE_API_KEY</span>, and{' '}
+              <span className="font-mono text-white/50">VITE_GOOGLE_APP_ID</span> in{' '}
+              <span className="font-mono text-white/50">.env</span> to import from Google Drive or Google Photos (see
+              README).
+            </p>
+          )}
+
+          {googleError && (
+            <p className="rounded-lg border border-amber-500/40 bg-amber-950/40 px-3 py-2 text-center text-xs text-amber-100">
+              {googleError}
+            </p>
+          )}
+        </div>
       </div>
 
       {/* Submit */}

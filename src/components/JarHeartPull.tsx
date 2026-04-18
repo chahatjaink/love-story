@@ -1,57 +1,184 @@
-import { motion } from 'framer-motion';
+import { useRef, useEffect, useState, useId, useCallback, type PointerEvent as ReactPointerEvent } from 'react';
+import { motion, useMotionValue, useTransform, animate } from 'framer-motion';
+import { playPulleyTick } from '../lib/pulleyTick';
 
 interface Props {
-  /** 0 = first pull, 1 = second, 2 = third (pre-merge) */
   pullIndex: 0 | 1 | 2;
-  /** Final merge animation */
   merging?: boolean;
-  /** Pull rope (ignored when merging) */
   onPull?: () => void;
 }
 
-const liftPx: Record<0 | 1 | 2, number> = {
-  0: 10,
-  1: 34,
-  2: 58,
+/** Total crank rotation (deg) for one full draw — drives pulley, rope, bucket. */
+const MAX_CRANK_DEG = 280;
+const THRESHOLD = MAX_CRANK_DEG * 0.52;
+const NOTCH_STEP = MAX_CRANK_DEG / 8;
+
+function unwrapAngleDelta(fromRad: number, toRad: number): number {
+  let d = toRad - fromRad;
+  while (d > Math.PI) d -= 2 * Math.PI;
+  while (d < -Math.PI) d += 2 * Math.PI;
+  return d;
+}
+
+const restLift: Record<0 | 1 | 2, number> = {
+  0: 0,
+  1: 22,
+  2: 46,
 };
 
-function HalfHeartClip({ half }: { half: 'top' | 'bottom' }) {
-  const clip =
-    half === 'top'
-      ? { clipPath: 'inset(0 0 52% 0)' as const }
-      : { clipPath: 'inset(48% 0 0 0)' as const };
-
+function BrokenHeartPair({ gap }: { gap: number }) {
+  const size = 'text-[4.5rem] leading-none sm:text-[5rem]';
   return (
-    <div
-      className="relative flex h-[52px] w-[56px] items-center justify-center text-[52px] leading-none select-none"
-      style={clip}
-      aria-hidden
-    >
-      <span className="block translate-y-0.5 drop-shadow-[0_0_12px_rgba(251,113,133,0.6)]">&#10084;&#65039;</span>
+    <div className="relative flex h-[5.25rem] w-[5.5rem] items-center justify-center" aria-hidden>
+      <motion.span
+        className={`absolute select-none ${size}`}
+        animate={{ x: -gap / 2 }}
+        transition={{ type: 'spring', stiffness: 280, damping: 26 }}
+      >
+        <span
+          className="inline-block drop-shadow-[0_0_14px_rgba(251,113,133,0.55)]"
+          style={{ clipPath: 'inset(0 50% 0 0)' }}
+        >
+          &#128148;
+        </span>
+      </motion.span>
+      <motion.span
+        className={`absolute select-none ${size}`}
+        animate={{ x: gap / 2 }}
+        transition={{ type: 'spring', stiffness: 280, damping: 26 }}
+      >
+        <span
+          className="inline-block drop-shadow-[0_0_14px_rgba(251,113,133,0.55)]"
+          style={{ clipPath: 'inset(0 0 0 50%)' }}
+        >
+          &#128148;
+        </span>
+      </motion.span>
     </div>
   );
 }
 
 export default function JarHeartPull({ pullIndex, merging = false, onPull }: Props) {
-  const lift = liftPx[pullIndex];
+  const uid = useId().replace(/:/g, '');
+  const crankDeg = useMotionValue(0);
+  const committed = useRef(false);
+  const crankRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{
+    startRad: number;
+    startCrank: number;
+  } | null>(null);
+  const lastNotchIndex = useRef(0);
+
+  const pulleyRotate = useTransform(crankDeg, [0, MAX_CRANK_DEG], [0, -320]);
+  const ropeSway = useTransform(crankDeg, [0, MAX_CRANK_DEG], [0, 3.5]);
+  const bucketY = useTransform(crankDeg, (deg) => {
+    const drag = (deg / MAX_CRANK_DEG) * 58;
+    return -(restLift[pullIndex] + drag);
+  });
+
+  const [mergeStep, setMergeStep] = useState<'split' | 'close' | 'whole'>('split');
+
+  useEffect(() => {
+    if (!merging) return;
+    let cancelled = false;
+    const run = async () => {
+      setMergeStep('split');
+      await new Promise((r) => setTimeout(r, 120));
+      if (cancelled) return;
+      setMergeStep('close');
+      await new Promise((r) => setTimeout(r, 720));
+      if (cancelled) return;
+      setMergeStep('whole');
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [merging]);
+
+  useEffect(() => {
+    crankDeg.set(0);
+    committed.current = false;
+    lastNotchIndex.current = 0;
+  }, [pullIndex, crankDeg]);
+
+  const updateNotchTicks = useCallback((deg: number) => {
+    const idx = Math.floor(deg / NOTCH_STEP);
+    if (idx > lastNotchIndex.current) {
+      const steps = idx - lastNotchIndex.current;
+      for (let t = 0; t < steps; t++) playPulleyTick();
+      lastNotchIndex.current = idx;
+    } else if (idx < lastNotchIndex.current) {
+      lastNotchIndex.current = idx;
+    }
+  }, []);
+
+  const endCrankGesture = useCallback(() => {
+    if (crankDeg.get() >= THRESHOLD && !committed.current) {
+      committed.current = true;
+      onPull?.();
+    }
+    void animate(crankDeg, 0, { type: 'spring', stiffness: 420, damping: 26 });
+  }, [crankDeg, onPull]);
+
+  const onCrankPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const el = crankRef.current;
+    if (!el) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const r = el.getBoundingClientRect();
+    const cx = r.left + r.width / 2;
+    const cy = r.top + r.height / 2;
+    const startRad = Math.atan2(e.clientY - cy, e.clientX - cx);
+    dragRef.current = { startRad, startCrank: crankDeg.get() };
+  };
+
+  const onCrankPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (!dragRef.current || !crankRef.current) return;
+    const r = crankRef.current.getBoundingClientRect();
+    const cx = r.left + r.width / 2;
+    const cy = r.top + r.height / 2;
+    const curRad = Math.atan2(e.clientY - cy, e.clientX - cx);
+    const deltaRad = unwrapAngleDelta(dragRef.current.startRad, curRad);
+    const deltaDeg = (deltaRad * 180) / Math.PI;
+    const next = Math.min(MAX_CRANK_DEG, Math.max(0, dragRef.current.startCrank + deltaDeg));
+    crankDeg.set(next);
+    updateNotchTicks(next);
+  };
+
+  const onCrankPointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
+    dragRef.current = null;
+    endCrankGesture();
+  };
 
   if (merging) {
     return (
-      <div className="flex w-full max-w-[220px] flex-col items-center py-6">
-        <motion.div
-          initial={{ scale: 0.4, opacity: 0 }}
-          animate={{ scale: [0.4, 1.15, 1], opacity: 1 }}
-          transition={{ duration: 1.1, times: [0, 0.65, 1], ease: 'easeOut' }}
-          className="text-[88px] leading-none drop-shadow-[0_0_40px_rgba(244,63,94,0.85)]"
-          aria-hidden
-        >
-          &#10084;&#65039;
-        </motion.div>
+      <div className="flex w-full max-w-[280px] flex-col items-center py-8">
+        <div className="relative flex h-40 w-full items-center justify-center">
+          {mergeStep === 'split' && <BrokenHeartPair gap={16} />}
+          {mergeStep === 'close' && <BrokenHeartPair gap={-2} />}
+          {mergeStep === 'whole' && (
+            <motion.div
+              initial={{ scale: 0.22, opacity: 0, filter: 'blur(14px)' }}
+              animate={{
+                scale: [0.22, 1.15, 1],
+                opacity: 1,
+                filter: ['blur(14px)', 'blur(0px)', 'blur(0px)'],
+              }}
+              transition={{ duration: 1.05, times: [0, 0.52, 1], ease: [0.19, 1, 0.22, 1] }}
+              className="text-[5.75rem] leading-none drop-shadow-[0_0_48px_rgba(244,63,94,0.92)]"
+            >
+              &#10084;&#65039;
+            </motion.div>
+          )}
+        </div>
         <motion.p
-          initial={{ opacity: 0, y: 8 }}
+          initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.35 }}
-          className="mt-4 text-center font-serif text-sm text-rose-100"
+          transition={{ delay: 0.45 }}
+          className="mt-3 text-center font-serif text-sm text-rose-100"
         >
           There it is — the whole heart.
         </motion.p>
@@ -59,72 +186,118 @@ export default function JarHeartPull({ pullIndex, merging = false, onPull }: Pro
     );
   }
 
+  const rad = (deg: number) => (deg * Math.PI) / 180;
+
   return (
-    <div className="flex w-full max-w-[260px] flex-col items-center gap-2">
-      {/* Top anchor: other half */}
+    <div className="flex w-full max-w-[340px] flex-col items-center gap-4">
       <div className="relative z-20 flex flex-col items-center">
-        <p className="mb-1 text-[10px] uppercase tracking-[0.2em] text-rose-300/70">Waiting up top</p>
-        <HalfHeartClip half="top" />
+        <p className="mb-1 text-[10px] uppercase tracking-[0.2em] text-rose-300/70">Waiting at the rim</p>
+        <BrokenHeartPair gap={6} />
       </div>
 
-      {/* Rope */}
-      <div className="relative flex h-[72px] w-2 flex-col items-center justify-end">
-        <svg
-          className="absolute bottom-0 left-1/2 h-full w-8 -translate-x-1/2 overflow-visible"
-          viewBox="0 0 32 120"
-          aria-hidden
-        >
-          <motion.path
-            d="M16 0 Q 22 40 16 80 Q 10 100 16 118"
-            fill="none"
-            stroke="url(#ropeGrad)"
-            strokeWidth="3"
-            strokeLinecap="round"
-            initial={false}
-            animate={{ d: pullIndex === 0 ? 'M16 0 Q 22 40 16 80 Q 10 100 16 118' : pullIndex === 1 ? 'M16 0 Q 18 36 16 74 Q 12 96 16 114' : 'M16 0 Q 16 32 16 68 Q 16 92 16 108' }}
-            transition={{ type: 'spring', stiffness: 120, damping: 14 }}
-          />
-          <defs>
-            <linearGradient id="ropeGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#fda4af" />
-              <stop offset="100%" stopColor="#9f1239" />
-            </linearGradient>
-          </defs>
-        </svg>
-        <motion.div
-          className="relative z-10 h-3 w-3 rounded-full bg-amber-800/90 ring-2 ring-amber-600/50 shadow-md"
-          animate={{ y: [0, -2, 0] }}
-          transition={{ repeat: Infinity, duration: 2.2, ease: 'easeInOut' }}
-        />
-      </div>
+      <div className="relative flex w-full flex-row items-end justify-center gap-4 sm:gap-6">
+        <div className="relative flex w-[230px] shrink-0 flex-col items-center sm:w-[248px]">
+          <svg viewBox="0 0 220 210" className="h-[210px] w-full overflow-visible" aria-hidden>
+            <defs>
+              <linearGradient id={`wood-${uid}`} x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0%" stopColor="#3f1d10" />
+                <stop offset="45%" stopColor="#7a4a32" />
+                <stop offset="100%" stopColor="#3f1d10" />
+              </linearGradient>
+              <linearGradient id={`rope-${uid}`} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#fecdd3" />
+                <stop offset="100%" stopColor="#881337" />
+              </linearGradient>
+            </defs>
+            <rect x="28" y="44" width="14" height="166" rx="3" fill={`url(#wood-${uid})`} opacity="0.95" />
+            <rect x="178" y="44" width="14" height="166" rx="3" fill={`url(#wood-${uid})`} opacity="0.95" />
+            <rect x="24" y="40" width="172" height="12" rx="4" fill={`url(#wood-${uid})`} />
+            <circle cx="110" cy="50" r="19" fill="#2a1810" stroke="#a67c52" strokeWidth="2" />
+            <motion.g style={{ rotate: pulleyRotate, transformOrigin: '110px 50px' }}>
+              {[0, 45, 90, 135].map((deg) => (
+                <line
+                  key={deg}
+                  x1="110"
+                  y1="50"
+                  x2={110 + 17 * Math.cos(rad(deg))}
+                  y2={50 + 17 * Math.sin(rad(deg))}
+                  stroke="#d4b896"
+                  strokeWidth="3"
+                  strokeLinecap="round"
+                />
+              ))}
+            </motion.g>
+            <motion.line
+              x1="110"
+              y1="69"
+              x2="110"
+              y2="128"
+              stroke={`url(#rope-${uid})`}
+              strokeWidth="3.5"
+              strokeLinecap="round"
+              style={{ x: ropeSway }}
+            />
+          </svg>
 
-      {/* Glass jar */}
-      <button
-        type="button"
-        onClick={() => onPull?.()}
-        className="group relative w-full max-w-[220px] rounded-b-[44px] rounded-t-lg border-2 border-white/35 bg-gradient-to-b from-white/15 via-rose-500/10 to-rose-950/40 px-4 pb-6 pt-3 shadow-[inset_0_0_24px_rgba(255,255,255,0.12),0_12px_40px_rgba(0,0,0,0.35)] backdrop-blur-sm active:scale-[0.99] transition-transform outline-none focus-visible:ring-2 focus-visible:ring-rose-400"
-        aria-label="Pull the rope to lift the heart"
-      >
-        <div className="pointer-events-none absolute inset-x-3 top-2 h-2 rounded-full bg-white/25 blur-[1px]" />
-        <p className="mb-3 text-center text-[11px] text-rose-100/80">Glass jar (emotionally stable)</p>
-
-        <div className="relative mx-auto flex h-[120px] w-full flex-col items-center justify-end overflow-hidden rounded-b-[32px]">
           <motion.div
-            className="relative z-10 flex flex-col items-center"
-            initial={false}
-            animate={{ y: -lift }}
-            transition={{ type: 'spring', stiffness: 100, damping: 16 }}
+            className="absolute bottom-[12px] left-1/2 flex w-[128px] -translate-x-1/2 flex-col items-center"
+            style={{ y: bucketY }}
           >
-            <p className="mb-1 text-[10px] uppercase tracking-[0.2em] text-rose-200/70">Rising half</p>
-            <HalfHeartClip half="bottom" />
+            <div className="rounded-b-2xl rounded-t-md border-2 border-amber-900/55 bg-gradient-to-b from-amber-950/85 to-stone-900/92 px-3 pb-2 pt-2 shadow-xl ring-1 ring-white/10">
+              <p className="mb-1 text-center text-[9px] uppercase tracking-widest text-amber-200/75">
+                Bucket
+              </p>
+              <BrokenHeartPair gap={10} />
+            </div>
           </motion.div>
-          <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-rose-950/60 to-transparent" />
+
+          <div className="pointer-events-none absolute bottom-0 left-1/2 h-6 w-[86%] -translate-x-1/2 rounded-full bg-stone-500/35 blur-[2px]" />
         </div>
 
-        <p className="mt-4 text-center text-xs font-medium text-rose-200 group-active:text-white">
-          Pull the rope
-        </p>
-      </button>
+        <div className="flex shrink-0 flex-col items-center pb-1">
+          <p className="mb-2 max-w-[6.5rem] text-center text-[10px] leading-snug text-rose-200/90">
+            Turn the crank — each notch clicks like the pulley
+          </p>
+          <div className="relative flex h-[172px] w-[5.25rem] flex-col items-center justify-end">
+            <div className="absolute bottom-2 h-[7.5rem] w-[7.5rem] rounded-full border border-stone-600/40 bg-stone-900/25 shadow-inner" />
+            <div
+              ref={crankRef}
+              className="relative z-10 flex h-[7.5rem] w-[7.5rem] cursor-grab touch-none items-center justify-center active:cursor-grabbing"
+              aria-label="Well crank, turn to raise the bucket"
+              onPointerDown={onCrankPointerDown}
+              onPointerMove={onCrankPointerMove}
+              onPointerUp={onCrankPointerUp}
+              onPointerCancel={onCrankPointerUp}
+            >
+              <motion.div className="absolute inset-0" style={{ rotate: crankDeg }}>
+                <svg viewBox="-48 -48 96 96" className="h-full w-full overflow-visible" aria-hidden>
+                  <defs>
+                    <linearGradient id={`crank-wood-${uid}`} x1="0" y1="0" x2="1" y2="0">
+                      <stop offset="0%" stopColor="#78350f" />
+                      <stop offset="100%" stopColor="#451a03" />
+                    </linearGradient>
+                  </defs>
+                  <line
+                    x1="0"
+                    y1="0"
+                    x2="44"
+                    y2="0"
+                    stroke={`url(#crank-wood-${uid})`}
+                    strokeWidth="7"
+                    strokeLinecap="round"
+                  />
+                  <circle cx="44" cy="0" r="13" fill="#b45309" stroke="#fcd34d" strokeWidth="1.5" />
+                  <circle cx="0" cy="0" r="20" fill="#57534e" stroke="#92400e" strokeWidth="2" />
+                </svg>
+              </motion.div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <p className="max-w-[17rem] text-center text-[11px] leading-snug text-rose-200/65">
+        Crank smoothly; let go after you have gone most of the way — the pulley springs back and your draw is saved.
+      </p>
     </div>
   );
 }

@@ -15,25 +15,25 @@ export interface SurprisePullQuote {
 export const surprisePullQuotes: SurprisePullQuote[] = [
   {
     vibe: 'friends',
-    vibeLabel: 'Sarcastic — Friends energy',
+    vibeLabel: 'Sarcastic',
     quote:
-      'Could this BE any more obvious? If commitment had a loyalty program, you two would already be platinum with extra foam.',
+      'Could this BE any more us? If showing up counted as points, we would already be platinum.',
     funny:
       'Translation: I would mock you more, but you are disgustingly cute and it ruins my bit.',
   },
   {
     vibe: 'modernFamily',
-    vibeLabel: 'Loving — Modern Family energy',
+    vibeLabel: 'Loving',
     quote:
-      'The best kind of family is the one you build on purpose — messy kitchens, loud laughter, and someone who saves you the last bite.',
+      'The best kind of family is the one you build on purpose — messy kitchens, loud laughter, and someone who eats your last bite.',
     funny:
-      'Phil Dunphy would call this “peerenting excellence.” I call it: you did good.',
+      'Half inside jokes, half stolen fries, zero perfect plans — and somehow it still turned out soft in the best way.',
   },
   {
     vibe: 'office',
-    vibeLabel: 'Funny — The Office energy',
+    vibeLabel: 'Funny',
     quote:
-      'Right now this is basically the Dundies if the Dundies were sincere and nobody spilled chili. You earned the good ending.',
+      'Feels like the day the awkward meeting ends early and everyone is quietly happy for you — no agenda, just real.',
     funny:
       'That’s what she said — and by “she” I mean the universe, and by “said” I mean “approved.”',
   },

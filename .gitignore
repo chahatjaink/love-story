@@ -17,6 +17,11 @@ dist-ssr
 .env.*
 !.env.example
 
+# Personal photos — never commit (use app upload / Firebase only)
+public/IMG_*.jpg
+public/IMG_*.jpeg
+public/IMG_*.png
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

@@ -49,8 +49,9 @@ export default function App() {
     setData(coupleData);
     setView('saving');
 
+    const saveMs = Math.min(900000, 45000 + submission.files.length * 15000);
     const timeout = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('Upload timed out after 60 seconds')), 60000),
+      setTimeout(() => reject(new Error(`Upload timed out after ${Math.round(saveMs / 1000)} seconds`)), saveMs),
     );
 
     try {

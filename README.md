@@ -53,6 +53,26 @@ VITE_FIREBASE_APP_ID=1:123456789:web:abc123
 
 Free tier limits: 1 GiB Firestore, 5 GB Storage, 1 GB/day downloads. More than enough for personal use.
 
+## Optional: Google Drive & Google Photos import
+
+The form can add **many** photos from this device, or (when configured) from **Google Drive** (in-browser picker, multi-select) and **Google Photos** (opens Google’s picker in a new tab; videos are skipped).
+
+1. In [Google Cloud Console](https://console.cloud.google.com/), pick the same project as Firebase (or any project).
+2. **APIs & Services > Library**: enable **Google Picker API**, **Google Drive API**, and **Photos Picker API**.
+3. **APIs & Services > Credentials**:
+   - Create an **OAuth 2.0 Client ID** (Application type: **Web application**). Add **Authorized JavaScript origins** for local dev (`http://localhost:5173`) and your production URL.
+   - Create an **API key**. Under key restrictions, use **HTTP referrers** and allow the same origins (and paths if you use path-based deploys).
+4. **IAM & Admin > Settings** (or Cloud Console home): copy the **Project number** (digits only).
+5. Add to `.env` (see `.env.example`):
+
+```
+VITE_GOOGLE_CLIENT_ID=....apps.googleusercontent.com
+VITE_GOOGLE_API_KEY=AIza...
+VITE_GOOGLE_APP_ID=123456789012
+```
+
+There is **no app-enforced cap** on how many photos you attach. Google’s own pickers allow large batches (Photos Picker documents up to **2000** items per session). Firebase Storage and Firestore still have **quota and cost** limits on your Google Cloud plan—watch usage if someone uploads a huge library.
+
 ## Deploy to Vercel (Free)
 
 **1. Create a GitHub repo** (empty, no README) and push this project:
