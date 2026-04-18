@@ -55,13 +55,27 @@ Free tier limits: 1 GiB Firestore, 5 GB Storage, 1 GB/day downloads. More than e
 
 ## Deploy to Vercel (Free)
 
-1. Push this repo to GitHub
-2. Go to [vercel.com](https://vercel.com), sign in with GitHub
-3. Import the repo -- Vercel auto-detects Vite and configures the build
-4. Add your `VITE_FIREBASE_*` env vars in Vercel project settings > Environment Variables
-5. Done. You get a free `.vercel.app` URL with HTTPS
+**1. Create a GitHub repo** (empty, no README) and push this project:
 
-Custom domains are free on Vercel too.
+```bash
+cd /path/to/gf
+git remote add origin https://github.com/YOUR_USERNAME/YOUR_REPO.git
+git push -u origin main
+```
+
+**2. Import on Vercel**
+
+1. Go to [vercel.com](https://vercel.com) and sign in with GitHub
+2. **Add New Project** > import your repo
+3. Framework Preset: **Vite** (auto-detected), Build: `npm run build`, Output: `dist`
+4. **Environment Variables**: add every key from `.env.example` (copy values from your local `.env` -- do not commit `.env`)
+5. **Deploy**
+
+You get `https://YOUR_PROJECT.vercel.app`. Share links will use that domain automatically.
+
+After the first deploy, every `git push` to `main` redeploys in about a minute.
+
+Custom domains: Vercel project **Settings > Domains** (free).
 
 ## Future: Native iOS & Android Apps
 
