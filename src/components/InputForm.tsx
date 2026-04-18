@@ -64,17 +64,36 @@ export default function InputForm({ onSubmit }: Props) {
     }
   };
 
-  const onGooglePhotos = async () => {
+  const onGooglePhotosClick = () => {
+    const popup = window.open('about:blank', '_blank');
+    if (!popup) {
+      setGoogleError(
+        'Pop-up was blocked. Allow pop-ups for this site to pick from Google Photos (Safari: aA → Website Settings).',
+      );
+      return;
+    }
+    try {
+      popup.document.open();
+      popup.document.write(
+        '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Photos</title></head><body style="margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:system-ui;background:#1a0a10;color:#fecdd3;font-size:15px">Connecting to Google Photos…</body></html>',
+      );
+      popup.document.close();
+    } catch {
+      /* ignore if document is not writable */
+    }
+
     setGoogleError(null);
     setGoogleBusy('photos');
-    try {
-      const files = await pickImagesFromGooglePhotos();
-      appendFiles(files);
-    } catch (err) {
-      setGoogleError(err instanceof Error ? err.message : 'Google Photos import failed.');
-    } finally {
-      setGoogleBusy(null);
-    }
+    void (async () => {
+      try {
+        const files = await pickImagesFromGooglePhotos(popup);
+        appendFiles(files);
+      } catch (err) {
+        setGoogleError(err instanceof Error ? err.message : 'Google Photos import failed.');
+      } finally {
+        setGoogleBusy(null);
+      }
+    })();
   };
 
   const removePhoto = (id: number) => {
@@ -263,7 +282,7 @@ export default function InputForm({ onSubmit }: Props) {
               <button
                 type="button"
                 disabled={googleBusy !== null}
-                onClick={() => void onGooglePhotos()}
+                onClick={onGooglePhotosClick}
                 className="min-h-[48px] rounded-xl border border-white/25 bg-white/5 px-3 py-2 text-sm text-rose-100 transition hover:border-rose-400/60 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {googleBusy === 'photos' ? 'Opening Photos…' : 'Add from Google Photos'}

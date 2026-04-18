@@ -141,18 +141,11 @@ async function deleteSession(accessToken: string, sessionId: string): Promise<vo
 }
 
 /**
- * Opens Google Photos in a new tab (user picks there). Returns image files (videos are skipped).
- * Requires pop-ups allowed for this site.
+ * The caller must open a tab with `window.open('about:blank','_blank')` in the **same synchronous
+ * stack** as the button tap (before any `setState` / `await`), then pass that `Window` here.
+ * Otherwise mobile Safari and others block the pop-up.
  */
-export async function pickImagesFromGooglePhotos(): Promise<File[]> {
-  // Open synchronously on the tap/click so mobile browsers allow it; do not use
-  // noopener here — it makes window.open return null in many browsers.
-  const popup = window.open('about:blank', '_blank');
-  if (!popup) {
-    throw new Error(
-      'Pop-up was blocked. Allow pop-ups for this site to pick from Google Photos, or try again after tapping the button.',
-    );
-  }
+export async function pickImagesFromGooglePhotos(popup: Window): Promise<File[]> {
   try {
     popup.opener = null;
   } catch {
