@@ -1,8 +1,12 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { surpriseQuotePairs } from '../config/quotes';
+import { surprisePullQuotes } from '../config/quotes';
+import { playMergeRustle } from '../lib/mergeRustle';
+import JarHeartPull from './JarHeartPull';
 
-type Phase = 'clickHere' | 'waiting' | 'box1' | 'box2' | 'box3' | 'done';
+type Phase = 'clickHere' | 'waiting' | 'jar1' | 'jar2' | 'jar3' | 'merge' | 'done';
+
+const MERGE_MS = 2400;
 
 interface Props {
   children: React.ReactNode;
@@ -18,32 +22,25 @@ export default function SurpriseGate({ children, onRevealComplete }: Props) {
 
   const advance = useCallback(() => {
     const p = phaseRef.current;
-    if (p === 'box3') {
-      onRevealComplete();
-      setPhase('done');
-      return;
-    }
     if (p === 'clickHere') setPhase('waiting');
-    else if (p === 'waiting') setPhase('box1');
-    else if (p === 'box1') setPhase('box2');
-    else if (p === 'box2') setPhase('box3');
+    else if (p === 'waiting') setPhase('jar1');
+  }, []);
+
+  const handlePull = useCallback(() => {
+    const p = phaseRef.current;
+    if (p === 'jar1') setPhase('jar2');
+    else if (p === 'jar2') setPhase('jar3');
+    else if (p === 'jar3') {
+      playMergeRustle(MERGE_MS / 1000);
+      onRevealComplete();
+      setPhase('merge');
+      window.setTimeout(() => setPhase('done'), MERGE_MS);
+    }
   }, [onRevealComplete]);
 
-  const boxIndex =
-    phase === 'box1' ? 0 : phase === 'box2' ? 1 : phase === 'box3' ? 2 : -1;
-  const pair =
-    boxIndex >= 0
-      ? surpriseQuotePairs[boxIndex % surpriseQuotePairs.length]
-      : null;
-
-  const boxSizes =
-    phase === 'box1'
-      ? { outer: 'min-h-[280px] w-full max-w-sm', inner: 'min-h-[200px]' }
-      : phase === 'box2'
-        ? { outer: 'min-h-[220px] w-full max-w-xs', inner: 'min-h-[150px]' }
-        : phase === 'box3'
-          ? { outer: 'min-h-[170px] w-full max-w-[240px]', inner: 'min-h-[110px]' }
-          : { outer: '', inner: '' };
+  const jarIndex: 0 | 1 | 2 | null =
+    phase === 'jar1' ? 0 : phase === 'jar2' ? 1 : phase === 'jar3' ? 2 : null;
+  const pullQuote = jarIndex !== null ? surprisePullQuotes[jarIndex] : null;
 
   if (phase === 'done') {
     return <>{children}</>;
@@ -96,61 +93,46 @@ export default function SurpriseGate({ children, onRevealComplete }: Props) {
               <p className="text-xl sm:text-2xl font-serif text-white leading-snug">
                 A surprise is waiting for you
               </p>
-              <p className="mt-6 text-rose-300 text-sm">Tap to open the first box</p>
+              <p className="mt-6 text-rose-300 text-sm">Tap when you are ready</p>
             </button>
           </motion.div>
         )}
 
-        {(phase === 'box1' || phase === 'box2' || phase === 'box3') && pair && (
+        {(phase === 'jar1' || phase === 'jar2' || phase === 'jar3') && pullQuote && jarIndex !== null && (
           <motion.div
             key={phase}
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.9 }}
-            className="relative z-10 w-full max-w-md flex flex-col items-center gap-6"
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -12 }}
+            className="relative z-10 flex w-full max-w-md flex-col items-center gap-5"
           >
-            <button
-              type="button"
-              onClick={advance}
-              className={`relative w-full rounded-2xl border-2 border-rose-300/50 bg-gradient-to-br from-white/10 to-rose-900/20 p-6 shadow-xl active:scale-[0.99] transition-transform ${boxSizes.outer}`}
-            >
-              <div
-                className={`mx-auto flex flex-col items-center justify-center rounded-xl border border-white/20 bg-black/30 ${boxSizes.inner}`}
-              >
-                <span className="text-rose-300 text-xs uppercase tracking-widest mb-2">
-                  {phase === 'box1' ? 'First' : phase === 'box2' ? 'Second' : 'Final'} box
-                </span>
-                <p className="text-white/90 text-sm px-2 text-center">
-                  {phase === 'box3' ? 'Last one — your heart earned this.' : 'Keep going…'}
-                </p>
-                <p className="text-rose-200 text-xs mt-3">Tap the box to continue</p>
-              </div>
-            </button>
-
-            <motion.div
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="w-full rounded-2xl border border-white/15 bg-white/5 backdrop-blur-md p-5 sm:p-6"
-            >
-              <p className="text-[10px] uppercase tracking-widest text-rose-400/80 mb-2">
-                For you
+            <div className="w-full rounded-2xl border border-white/15 bg-white/5 p-5 sm:p-6 backdrop-blur-md">
+              <p className="mb-2 text-[10px] uppercase tracking-widest text-rose-400/90">
+                {pullQuote.vibeLabel}
               </p>
-              <p className="text-white font-serif text-base sm:text-lg leading-relaxed">
-                {pair.quote}
+              <p className="font-serif text-base leading-relaxed text-white sm:text-lg">
+                {pullQuote.quote}
               </p>
-            </motion.div>
+            </div>
 
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.15 }}
-              className="w-full rounded-xl border border-amber-500/20 bg-amber-950/30 px-4 py-3 text-center"
-            >
-              <p className="text-amber-100/90 text-sm italic">{pair.funny}</p>
-            </motion.div>
+            <div className="w-full rounded-xl border border-amber-500/25 bg-amber-950/35 px-4 py-3 text-center backdrop-blur-sm">
+              <p className="text-sm italic text-amber-100/95">{pullQuote.funny}</p>
+            </div>
+
+            <JarHeartPull pullIndex={jarIndex} merging={false} onPull={handlePull} />
           </motion.div>
         )}
       </AnimatePresence>
+
+      {phase === 'merge' && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="fixed inset-0 z-[110] flex flex-col items-center justify-center bg-gradient-to-b from-[#0a0408]/95 via-[#2d0a1e]/95 to-[#0a0408]/95 px-6 backdrop-blur-md"
+        >
+          <JarHeartPull pullIndex={2} merging />
+        </motion.div>
+      )}
     </div>
   );
 }
