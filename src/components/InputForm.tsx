@@ -271,16 +271,6 @@ export default function InputForm({ onSubmit }: Props) {
             </div>
           )}
 
-          {!googleConfigured && (
-            <p className="text-center text-[11px] leading-snug text-white/35">
-              Optional: set <span className="font-mono text-white/50">VITE_GOOGLE_CLIENT_ID</span>,{' '}
-              <span className="font-mono text-white/50">VITE_GOOGLE_API_KEY</span>, and{' '}
-              <span className="font-mono text-white/50">VITE_GOOGLE_APP_ID</span> in{' '}
-              <span className="font-mono text-white/50">.env</span> to import from Google Drive or Google Photos (see
-              README).
-            </p>
-          )}
-
           {googleError && (
             <p className="rounded-lg border border-amber-500/40 bg-amber-950/40 px-3 py-2 text-center text-xs text-amber-100">
               {googleError}
